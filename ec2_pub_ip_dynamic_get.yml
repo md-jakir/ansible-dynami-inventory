@@ -1,0 +1,65 @@
+---
+- name: Gather EC2 instance information
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Gather EC2 facts
+      amazon.aws.ec2_instance_info:
+        region: us-east-1 # Change this to your desired region
+        profile: myaws
+      register: ec2_info
+
+    # - name: Print public IPs of all running EC2 instances
+    #   debug:
+    #     msg: "{{ item.public_ip_address }}"
+    #   loop: "{{ ec2_info.instances }}"
+    #   when: item.state.name == 'running'
+
+    - name: Collect public IPs of running instances for profile2
+      set_fact:
+        public_ips: "{{ ec2_info.instances | selectattr('state.name', 'eq', 'running') | map(attribute='public_ip_address') | list }}"
+      register: own_ec2_own
+
+    - name: Print public IPs
+      debug: 
+        msg: "{{own_ec2_own}}"
+
+    # - name: Combine IP lists from both profiles
+    #   set_fact:
+    #     all_public_ips: "{{ profile1_public_ips + profile2_public_ips }}"
+
+    # - name: Save public IPs to a file
+    #   copy:
+    #     content: |
+    #       [nginx_servers]
+    #       {% for ip in public_ips %}
+    #       {{ ip }}
+    #       {% endfor %}
+    #     dest: ./inventory.ini
+
+    - name: Add EC2 instances to inventory group
+      add_host:
+        name: "{{ item }}"
+        groups: nginx_servers
+        ansible_ssh_private_key_file: ./ec2-private-key.pem
+        ansible_user: ec2-user
+      loop: "{{ public_ips }}"
+
+- name: Install NGINX on EC2 instances
+  hosts: nginx_servers
+  become: yes
+  tasks:
+    - name: Update apt cache
+      yum:
+        update_cache: yes
+
+    - name: Install NGINX
+      yum:
+        name: nginx
+        state: present
+
+    - name: Start and enable NGINX
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
